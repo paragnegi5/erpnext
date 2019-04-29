@@ -320,18 +320,41 @@ def reconcile_against_document(args):
 
 		# cancel advance entry
 		doc = frappe.get_doc(d.voucher_type, d.voucher_no)
+		if d.voucher_type.find("Invoice"):
+			was_return = doc.is_return
+			from erpnext.accounts.general_ledger import make_gl_entries
+			doc_against = frappe.get_doc(d.against_voucher_type, d.against_voucher)
+			make_gl_entries(doc_against.get_gl_entries(), cancel=1, adv_adj=1)
+			make_gl_entries(doc.get_gl_entries(), cancel=1, adv_adj=1)
 
-		doc.make_gl_entries(cancel=1, adv_adj=1)
+			update_reference_in_return_invoice(d, doc)
 
-		# update ref in advance entry
-		if d.voucher_type == "Journal Entry":
-			update_reference_in_journal_entry(d, doc)
+			# re-submit advance entry
+			doc = frappe.get_doc(d.voucher_type, d.voucher_no)
+			doc_against = frappe.get_doc(d.against_voucher_type, d.against_voucher)
+
+			doc_against.make_gl_entries()
+			doc.make_gl_entries()
+
+			# Now we update the outstanding amount of the credit note
+			from erpnext.accounts.doctype.gl_entry.gl_entry import update_outstanding_amt
+			update_outstanding_amt(d.account, d.party_type, d.party, d.voucher_type, d.voucher_no)
+
+			doc = frappe.get_doc(d.voucher_type, d.voucher_no)
+			update_reference_in_return_invoice(d, doc, was_return)
+			frappe.db.commit()
 		else:
-			update_reference_in_payment_entry(d, doc)
+			doc.make_gl_entries(cancel=1, adv_adj=1)
 
-		# re-submit advance entry
-		doc = frappe.get_doc(d.voucher_type, d.voucher_no)
-		doc.make_gl_entries(cancel = 0, adv_adj =1)
+			# update ref in advance entry
+			if d.voucher_type == "Journal Entry":
+				update_reference_in_journal_entry(d, doc)
+			else:
+				update_reference_in_payment_entry(d, doc)
+
+			# re-submit advance entry
+			doc = frappe.get_doc(d.voucher_type, d.voucher_no)
+			doc.make_gl_entries(cancel = 0, adv_adj =1)
 
 def check_if_advance_entry_modified(args):
 	"""
@@ -348,6 +371,13 @@ def check_if_advance_entry_modified(args):
 			and (t2.reference_type is null or t2.reference_type in ("", "Sales Order", "Purchase Order"))
 			and t1.name = %(voucher_no)s and t2.name = %(voucher_detail_no)s
 			and t1.docstatus=1 """.format(dr_or_cr = args.get("dr_or_cr")), args)
+	elif args.voucher_type.find("Invoice"):
+		ret = frappe.db.sql("""SELECT * from `tab{ref}`
+							   where outstanding_amount = {unadjusted_amount} * -1
+							   and name = '{reference_name}'
+							   and docstatus = 1""".format(ref=args.voucher_type,
+							   							   unadjusted_amount=args.unadjusted_amount,
+							   							   reference_name=args.voucher_no))
 	else:
 		party_account_field = ("paid_from"
 			if erpnext.get_party_account_type(args.party_type) == 'Receivable' else "paid_to")
@@ -464,6 +494,13 @@ def update_reference_in_payment_entry(d, payment_entry):
 	payment_entry.set_missing_values()
 	payment_entry.set_amounts()
 	payment_entry.save(ignore_permissions=True)
+
+def update_reference_in_return_invoice(d, inv_obj, was_return=1):
+	inv_obj.return_against = d.against_voucher
+	inv_obj.is_return = was_return
+	# inv_obj.outstanding_amount = inv_obj.outstanding_amount + d.allocated_amount
+	inv_obj.flags.ignore_validate_update_after_submit = True
+	inv_obj.save(ignore_permissions=True)
 
 def unlink_ref_doc_from_payment_entries(ref_doc):
 	remove_ref_doc_link_from_jv(ref_doc.doctype, ref_doc.name)
