@@ -330,8 +330,9 @@ class Subscription(Document):
 		if self.is_new_subscription():
 			return True
 
-		# Check invoice dates and make sure it doesn't have outstanding invoices
-		return getdate(nowdate()) >= getdate(self.current_invoice_start) and not self.has_outstanding_invoice()
+		if getdate(nowdate()) > getdate(self.current_invoice_end) and not self.has_outstanding_invoice():
+			self.update_subscription_period()
+			return True
 
 	def process_for_trialling(self):
 		if not self.is_trialling():
