@@ -343,15 +343,6 @@ class Subscription(Document):
 			self.update_subscription_period()
 			self.process()
 
-	def process_for_trialling(self):
-		if not self.is_trialling():
-			self.status = 'Active'
-		self.set_subscription_status()
-		self.save()
-		if self.status != "Trialling":
-			self.update_subscription_period()
-			self.process()
-
 	def process_for_active(self):
 		"""
 		Called by `process` if the status of the `Subscription` is 'Active'.
