@@ -319,9 +319,10 @@ class Subscription(Document):
 		self.save()
 
 	def is_postpaid_to_invoice(self):
-		return getdate(nowdate()) > getdate(self.current_invoice_end) or \
-			(getdate(nowdate()) >= getdate(self.current_invoice_end) and getdate(self.current_invoice_end) == getdate(self.current_invoice_start)) and \
-			not self.has_outstanding_invoice()
+		if self.generate_invoice_at_period_start:
+			return False
+
+		return getdate(nowdate()) > getdate(self.current_invoice_end)
 
 	def is_prepaid_to_invoice(self):
 		if not self.generate_invoice_at_period_start:
@@ -330,7 +331,7 @@ class Subscription(Document):
 		if self.is_new_subscription():
 			return True
 
-		if getdate(nowdate()) > getdate(self.current_invoice_end) and not self.has_outstanding_invoice():
+		if getdate(nowdate()) > getdate(self.current_invoice_end):
 			self.update_subscription_period()
 			return True
 
