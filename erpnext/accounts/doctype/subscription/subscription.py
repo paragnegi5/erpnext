@@ -343,11 +343,11 @@ class Subscription(Document):
 		if not self.generate_invoice_at_period_start:
 			return False
 
-		if self.is_new_subscription():
-			return True
-		
 		if self.status == 'Cancelled':
 			return False
+
+		if self.is_new_subscription() and getdate(nowdate()) >= getdate(self.current_invoice_start):
+			return True
 
 		if getdate(nowdate()) > getdate(self.current_invoice_end):
 			self.update_subscription_period(add_days(self.current_invoice_end, 1))
